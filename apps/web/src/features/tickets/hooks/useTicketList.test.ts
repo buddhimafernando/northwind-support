@@ -51,4 +51,86 @@ describe('useTicketList', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.data?.items).toHaveLength(1);
   });
+
+  it('triggers an immediate request when changing a single filter such as status (DEFECT-117)', async () => {
+    const { result } = renderHook(() => useTicketList());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(getTickets).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      result.current.updateFilters({ status: 'InProgress' });
+    });
+
+    // An immediate request is dispatched without waiting for debounce
+    expect(getTickets).toHaveBeenCalledTimes(2);
+    expect(getTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'InProgress', page: 1 }),
+    );
+  });
+
+  it('does not send requests on each search keystroke until debounce window elapses', async () => {
+    const { result } = renderHook(() => useTicketList());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(getTickets).toHaveBeenCalledTimes(1);
+
+    // Simulate fast typing across several keystrokes
+    await act(async () => {
+      result.current.updateFilters({ search: 'a' });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+      result.current.updateFilters({ search: 'ab' });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+      result.current.updateFilters({ search: 'abc' });
+    });
+
+    // Still within debounce window; no requests dispatched
+    expect(getTickets).toHaveBeenCalledTimes(1);
+
+    // Advance beyond debounce window
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(getTickets).toHaveBeenCalledTimes(2);
+    expect(getTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: 'abc', page: 1 }),
+    );
+  });
+
+  it('triggers an immediate request when resetFilters is called', async () => {
+    const { result } = renderHook(() => useTicketList());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      result.current.updateFilters({ priority: 'High', search: 'printer' });
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(getTickets).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      result.current.resetFilters();
+    });
+
+    // Immediately requests with empty filters
+    expect(getTickets).toHaveBeenCalledTimes(3);
+    expect(getTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: '', priority: undefined, page: 1 }),
+    );
+  });
 });
+
