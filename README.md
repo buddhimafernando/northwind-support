@@ -107,3 +107,19 @@ and 40 tickets across every status, priority and SLA state.
 | Browser warns about the certificate | `dotnet dev-certs https --trust`, or use the web app, which proxies |
 | Web app shows "Unable to load tickets" | The API is not running, or `VITE_API_PROXY_TARGET` points at the wrong port |
 | SQL Server slow on Apple Silicon | Enable Rosetta in Docker Desktop → Settings → General |
+
+## Implementation
+
+## Defect fix and server-side filtering
+
+### 1.1. DEFECT-117: filters sometimes do not take effect
+
+**Root cause:** The useTicketList effect debounced all fetching and restricted its dependency array to [filters.search, filters.page, filters.pageSize], omitting dropdown filter properties (status, priority, category etc). BEcause of this, updating a dropdown filter never triggered an API request until a search term change forced a reload.
+**Fix:** the fetch now depends on the complete set of filters, so any single filter change sends an immediate request (including future ones such as SLA status). Only the search text is debounced (300 ms), and responses from outdated requests are ignored.
+**How to verify:** run `npm test` (the regression tests fail on the original code), or open DevTools - Network, change Status, and see a request at once.
+
+### Server-side filtering (Task 1.2)
+
+**Root cause:** `GET /api/tickets` bound the filter values (search, status, priority, categoryId, customerId, assignedAgentId, unassignedOnly) into `TicketQuery`, but `TicketQueries.GetPagedAsync` never used them, so it counted, sorted and paged every ticket.
+**Fix:** Added `ApplyFilters`, which chains one `.Where` per supplied filter (so they combine with AND) on the `IQueryable` before `CountAsync` and paging. totalCount and totalPages now reflect the filtered set, and nothing is filtered in C#. A new filter, such as SLA status, is one more `if` block in `ApplyFilters`.
+**How to verify:** Run `npm run api` and test endpoints with filter combinations in Swagger (`https://localhost:7043/swagger`) or the web app.
