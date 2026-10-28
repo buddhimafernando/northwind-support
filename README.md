@@ -153,7 +153,7 @@ and 40 tickets across every status, priority and SLA state.
 
 ### 2.2. Backend
 
-**What was built:**
+**Fixes:**
 - **Triage on create:** `POST /api/tickets` loads the customer's tier, the category's flags and every agent's workload in one query, then applies `TicketTriage.ForNewTicket`. The response is the ticket detail (priority, assigned agent or null, due date, SLA status) plus a `triage` object with the three reasons. When nobody is eligible the ticket is still created (201) and left unassigned, with the reason.
 - **Escalate:** `POST /api/tickets/{id}/escalate` with `{ reason, escalatedBy }` returns `{ ticket, escalation }`.
   - 400: a reason shorter than 5 or longer than 500 characters once trimmed, or a missing `escalatedBy`.
@@ -192,7 +192,7 @@ and 40 tickets across every status, priority and SLA state.
 
 ### 2.3. Frontend
 
-**What was built:**
+**Fixes:**
 - **One SLA indicator:** `SlaIndicator` replaces `SlaCell` and is used by both the ticket list and the ticket page. Each of the five states has its own words and symbol as well as its own colour (Within SLA ◷, At risk !, Breached ✕, Met ✓, No SLA –), so the state never depends on colour alone. The labels live in `features/tickets/sla.ts`, and the filter dropdown uses the same ones.
 - **SLA filter:** a new "SLA" dropdown in the filter bar. Because of the DEFECT-117 fix, it needed nothing beyond the new `slaStatus` field and one more query parameter: changing it sends a request immediately, and a test checks this.
 - **Escalation panel** on the ticket page:
@@ -215,3 +215,37 @@ and 40 tickets across every status, priority and SLA state.
 - The SLA indicator renders all five states with different text and a different style.
 - The escalate form is disabled, with an explanation, for Critical, Resolved and Closed tickets.
 - The SLA filter sends a request immediately.
+
+### 2.4. Tests
+
+**How to run:** `npm test` runs both suites. `dotnet test` runs only the backend (xUnit + Moq); `npm run test --workspace apps/web` runs only the frontend (Vitest + React Testing Library).
+
+**Backend:** all files are under `apps/api/tests/SupportDesk.UnitTests`. Tests that depend on time use `FixedClock`, and tickets are built with `TicketBuilder`.
+
+| Requirement | Where |
+|---|---|
+| SLA window for every priority and tier, including the 1 h floor (below it, exactly at it, and Standard not floored) | `SlaPolicyTests` |
+| Forced-Critical categories override a requested priority, or a missing one | `TicketTriageTests` |
+| Agent selection: fewest open tickets, specialists only, limits, inactive agents, deterministic ties, nobody eligible | `AgentSelectorTests` |
+| Escalation goes up exactly one level from Low, Medium and High, with the due date recomputed from the moment of escalation (both tiers) | `TicketTriageTests`, `EscalateTicketCommandHandlerTests` |
+| Owner kept when still eligible (even at their limit); reassigned when inactive or not a specialist; left unassigned when nobody is eligible | `AgentSelectorTests`, `TicketTriageTests`, `EscalateTicketCommandHandlerTests` |
+| History row records before and after for priority, agent and due date, plus the trimmed reason, who and when | `TicketTests`, `EscalateTicketCommandHandlerTests` |
+| Rejections: Critical, Resolved and Closed (the message names which); unknown ticket; nothing saved and agents not loaded | `TicketTests`, `TicketTriageTests`, `EscalateTicketCommandHandlerTests` |
+| Reason length at 4, 5, 500 and 501 characters, measured after trimming; missing actor | `EscalateTicketRequestValidatorTests` |
+| SLA status at exact boundaries: due exactly now, one tick past due, exactly 25% left, just over 25% left, resolved exactly at due or one tick late | `SlaEvaluatorTests` |
+
+**Frontend:** all files are under `apps/web/src/features/tickets`.
+
+| Requirement | Where |
+|---|---|
+| A short reason (checked after trimming) blocks submission and never calls the API | `EscalationPanel.test.tsx` |
+| A 409 is shown and the ticket is unchanged: checked in the panel, and on the whole page (priority unchanged, ticket and history not refetched) | `EscalationPanel.test.tsx`, `TicketDetailPage.test.tsx` |
+| The SLA indicator renders every state with its own words, symbol and style | `SlaIndicator.test.tsx` |
+| Escalation is disabled, with a reason given, for Critical, Resolved and Closed tickets | `EscalationPanel.test.tsx` |
+| History shows priority, agent and due changes, "(unchanged)" when the owner was kept, and an empty state | `EscalationHistory.test.tsx` |
+| Triage result shows the reasons, including the "unassigned because…" case | `TriageResult.test.tsx` |
+| The SLA filter sends a request immediately | `useTicketList.test.ts` |
+
+**Deliberately not tested:**
+- **The SQL `slaStatus` filter:** it uses SQL Server's `DATEDIFF`, which the Sqlite test database can't run. It was checked by hand against SQL Server (see 2.2).
+- **EF mapping and the migration:** covered by the existing `PersistenceModelTests`, plus the manual run.

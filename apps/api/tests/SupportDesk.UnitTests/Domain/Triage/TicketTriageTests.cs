@@ -76,6 +76,26 @@ public class TicketTriageTests
         Assert.Equal(escalatedAt.AddHours(12), decision.DueAtUtc);
     }
 
+    [Theory]
+    [InlineData(TicketPriority.Low, CustomerTier.Standard, TicketPriority.Medium, 24)]
+    [InlineData(TicketPriority.Medium, CustomerTier.Standard, TicketPriority.High, 8)]
+    [InlineData(TicketPriority.High, CustomerTier.Standard, TicketPriority.Critical, 4)]
+    [InlineData(TicketPriority.Low, CustomerTier.Premium, TicketPriority.Medium, 12)]
+    [InlineData(TicketPriority.Medium, CustomerTier.Premium, TicketPriority.High, 4)]
+    [InlineData(TicketPriority.High, CustomerTier.Premium, TicketPriority.Critical, 2)]
+    public void ForEscalation_RaisesExactlyOneLevel_WithThatLevelsWindow(
+        TicketPriority from, CustomerTier tier, TicketPriority expected, double windowHours)
+    {
+        var ticket = new TicketBuilder().WithPriority(from).Build();
+        var escalatedAt = Now.AddHours(30);
+
+        var decision = _sut.ForEscalation(ticket, General, tier, [Agent(1, 0)], escalatedAt);
+
+        Assert.Equal(expected, decision.Priority);
+        Assert.Equal(escalatedAt.AddHours(windowHours), decision.DueAtUtc);
+        Assert.Contains($"from {from} to {expected}", decision.PriorityReason);
+    }
+
     [Fact]
     public void ForEscalation_KeepsAnEligibleOwner()
     {
@@ -95,6 +115,32 @@ public class TicketTriageTests
             ticket, General, CustomerTier.Standard, [Agent(1, 0, active: false), Agent(2, 4)], Now);
 
         Assert.Equal(2, decision.AssignedAgentId);
+    }
+
+    [Fact]
+    public void ForEscalation_MovesASpecialistTicketOffANonSpecialistOwner()
+    {
+        // The team lead's manual assignment skips the specialist rule, so this can happen.
+        var billing = new Category("Billing", requiresSpecialist: true, forcesCriticalPriority: false);
+        var nonSpecialist = new AgentCandidate(1, "Alex Turner", true, 10, 1, [99]);
+        var specialist = new AgentCandidate(2, "Sara Lindqvist", true, 6, 4, [billing.Id]);
+        var ticket = new TicketBuilder().AssignedTo(1).Build();
+
+        var decision = _sut.ForEscalation(ticket, billing, CustomerTier.Standard, [nonSpecialist, specialist], Now);
+
+        Assert.Equal(2, decision.AssignedAgentId);
+        Assert.Contains("Alex Turner is no longer eligible", decision.AssignmentReason);
+    }
+
+    [Fact]
+    public void ForEscalation_WhenNobodyIsEligible_LeavesTheTicketUnassigned()
+    {
+        var ticket = new TicketBuilder().AssignedTo(1).Build();
+
+        var decision = _sut.ForEscalation(ticket, General, CustomerTier.Standard, [Agent(1, 0, active: false)], Now);
+
+        Assert.Null(decision.AssignedAgentId);
+        Assert.Contains("unassigned", decision.AssignmentReason);
     }
 
     [Fact]

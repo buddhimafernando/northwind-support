@@ -57,4 +57,33 @@ public class EscalateTicketCommandHandlerTests
         Assert.Null(context.AddedEscalation);
         context.VerifySaved(Times.Never());
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenTheOwnerIsNoLongerEligible_ReassignsAndRecordsBoth()
+    {
+        var context = new TicketCommandTestContext();
+        context.Candidates.Add(new AgentCandidate(1, "Yuki Tanaka", false, 8, 0, []));
+        context.Candidates.Add(new AgentCandidate(2, "Ben Osei", true, 8, 3, []));
+        var ticket = context.ExistingTicket(new TicketBuilder().AssignedTo(1).Build());
+
+        await context.EscalateTicket.HandleAsync(ticket.Id, Request, CancellationToken.None);
+
+        Assert.Equal(2, ticket.AssignedAgentId);
+        Assert.Equal(1, context.AddedEscalation?.FromAgentId);
+        Assert.Equal(2, context.AddedEscalation?.ToAgentId);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenResolved_ThrowsSayingSo()
+    {
+        var context = new TicketCommandTestContext();
+        var ticket = context.ExistingTicket(new TicketBuilder().WithStatus(TicketStatus.Resolved).Build());
+
+        var exception = await Assert.ThrowsAsync<BusinessRuleViolationException>(
+            () => context.EscalateTicket.HandleAsync(ticket.Id, Request, CancellationToken.None));
+
+        Assert.Contains("Resolved", exception.Message);
+        Assert.Equal(TicketPriority.Medium, ticket.Priority);
+        context.VerifySaved(Times.Never());
+    }
 }
