@@ -303,3 +303,28 @@ and 40 tickets across every status, priority and SLA state.
 - An unauthenticated visitor is redirected to login and returned to the page they wanted (path and query) after signing in.
 - Clearing the session mid-visit redirects to login.
 - The login page blocks invalid input without calling the API, shows the error for rejected credentials, and shows a pending state.
+
+### 3.3. Tests
+
+**How to run:** `npm test` runs everything. `dotnet test` runs the backend: unit tests, the new integration tests and the architecture tests. No Docker or SQL Server is needed for any of them.
+
+**Integration tests over HTTP (`apps/api/tests/SupportDesk.IntegrationTests`):** these test the authentication setup itself, not just the code behind it. `WebApplicationFactory` hosts the real `Program` in memory, with the same middleware, JWT validation and fallback policy as a normal run. Only two things differ: the database is an in-memory SQLite database, and the configuration is test-only, including a new random signing key on every run.
+
+| Behaviour | Test |
+|---|---|
+| The right password returns a token, its expiry and the agent | `Login_WithTheRightPassword_…` |
+| A wrong password, an unknown email and an inactive agent all get the identical 401, `Invalid email or password.`, with no token | `Login_WrongPasswordUnknownEmailAndInactiveAgent_…` |
+| `/api/tickets`, `/api/agents`, `/api/customers`, `/api/categories` and `/api/auth/me` are 401 without a token and 200 with one | `ProtectedEndpoint_Is401WithoutAToken_And200WithOne` |
+| A token with a tampered signature is rejected | `ProtectedEndpoint_RejectsATamperedToken` |
+| The escalation is recorded against the agent in the token, even when the body names someone else | `Escalate_RecordsTheAgentFromTheToken_…` |
+
+**Checking the tests can fail:** I removed the fallback policy temporarily. Six tests failed, including `/api/auth/me`, which has no `[Authorize]` attribute of its own and relies on the central policy. With the policy back, all of them pass.
+
+**Unit and frontend tests from 3.1 and 3.2:**
+- Password hashing and verification with the real `PasswordHasher`: the hash is salted, never contains the password, and verification passes and fails correctly (`LoginCommandHandlerTests`).
+- `/me` refuses an agent deactivated since signing in (`GetCurrentAgentQueryHandlerTests`).
+- On the frontend: the client attaches the token and clears the session on a 401; visitors are redirected to login and back; and the login form validates, shows rejected credentials and shows a pending state (`client.test.ts`, `RequireAuth.test.tsx`, `LoginPage.test.tsx`).
+
+**Deliberately not tested:**
+- **Token expiry over HTTP:** it would need either a 60-minute wait or the server's clock replaced. Expiry is enforced by the JWT handler's standard lifetime check, and the frontend's response to the resulting 401 is tested.
+- **The SQL Server provider:** the integration tests use SQLite. The SQL Server-specific SLA filter was checked by hand (see 2.2).
