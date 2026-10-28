@@ -127,7 +127,9 @@ and 40 tickets across every status, priority and SLA state.
 
 **Root cause:** `GET /api/tickets` bound the filters into `TicketQuery`, but `TicketQueries.GetPagedAsync` never used them, so it counted and paged every ticket.
 
-**Fix:** `ApplyFilters` adds one `.Where` per filter (combined with AND) before `CountAsync` and paging, so `totalCount` and `totalPages` match the filtered set and nothing is filtered in C#.
+**Fix:** `ApplyFilters` adds one `.Where` per filter (combined with AND) before `CountAsync` and paging, so `totalCount` and `totalPages` match the filtered set and nothing is filtered in C#. Adding the next filter means adding one more `if` in `ApplyFilters`, which is exactly what `slaStatus` did in Task 2.
+
+**How the SQL was checked:** `TicketQueriesTests` run the real query against an in-memory SQLite database (exact-match priority, a combination of filters, a customer-name search, unassigned only, and filtering before counting and paging). EF Core throws if a filter can't be translated to SQL, so these tests also prove nothing is filtered in memory.
 
 ### 2.1 Business rules
 
@@ -161,10 +163,6 @@ The migration `AddTicketEscalations` adds the `TicketEscalations` table. It has 
 - The SLA rule exists twice: in C# for the displayed status, and in SQL for the filter, with a comment in each pointing to the other. `DATEDIFF` works in whole seconds, so at the at-risk boundary the two can differ by up to a second.
 - The create response is the existing ticket detail with an extra `triage` field, so the existing form kept working.
 - Foreign keys on `TicketEscalations` restrict deletes, because it's an audit trail.
-
-**Known limitations:**
-- Two tickets created at the same moment can both go to an agent with room for only one, because there's no locking.
-- SQLite doesn't support `DATEDIFF`, so I tested the SLA filter by hand against SQL Server.
 
 ### 2.3 Frontend
 
@@ -216,11 +214,6 @@ Not covered by automated tests: the SQL SLA filter (see 2.2).
 - The JWT uses HMAC-SHA256, lasts 60 minutes, and carries the claims `sub`, `name` and `email`. There are no refresh tokens (out of scope).
 - The signing key isn't in any config file. It lives in user-secrets locally and in the `Jwt__SigningKey` environment variable elsewhere. The API won't start without a key of at least 32 bytes.
 
-**Known limitations:**
-- There's no rate limiting or lockout.
-- Tokens can't be revoked before they expire. Only `/me` re-checks the agent.
-- `EscalatedBy` is limited to 100 characters, but names can be up to 200.
-
 For production, I'd add a secret store with key rotation, refresh tokens with revocation, account lockout, and HTTPS only.
 
 ### 3.2 Authentication: frontend
@@ -266,4 +259,64 @@ The API waits for SQL Server to be healthy, then migrates, seeds, and listens on
 
 **Health:** `GET /health` returns 200 when the database is reachable and 503 when it isn't, and needs no token. The database check has a 5-second timeout; without it, the retry policy kept the request hanging for over a minute.
 
+**How it was checked:**
+- `docker compose down -v && docker compose up --build`: migrations applied, 40 tickets seeded, `/health` returned 200, and `/api/tickets` returned data after signing in.
+- After changing one `.cs` file and rebuilding, every step up to and including `dotnet restore` showed `CACHED`.
+- The image is 485 MB (123 MB compressed), against 1.36 GB (350 MB compressed) for `dotnet/sdk:10.0`.
+- `docker compose exec api whoami` printed `app`, not root.
+
 **Migrations:** the container migrates on startup only because it runs as Development. In production I'd run a migration bundle (`dotnet ef migrations bundle`) as a separate release step, so several instances don't race each other and the app doesn't need permission to change the schema. I'd also use a chiseled base image, a read-only filesystem, and secrets from a secret store.
+
+## Design patterns
+
+- **Command and query handlers (CQRS-style).** Writes like `RaiseTicketCommandHandler` and `EscalateTicketCommandHandler` load entities through repositories and let the domain change them. Reads like `TicketQueries` are `AsNoTracking` projections straight into DTOs. A list page never needs a full entity, and keeping the two apart stops read code from drifting into write rules.
+- **Repository at the aggregate boundary.** `ITicketRepository` and similar interfaces exist because that's where the code meets the database. The Domain and Application projects don't reference EF Core, and `LayerDependencyTests` checks that. I didn't add a generic repository, which would just wrap `DbSet`.
+- **Policy objects for the business rules.** `SlaPolicy`, `SlaEvaluator`, `AgentSelector` and `TicketTriage` are small classes with no I/O. Create and escalate use the same ones, so each rule is written once. `SlaPolicy` uses the Options pattern: it's bound from config and validated at startup. "Now" comes from `IClock`, so tests use a fixed time.
+
+**Rejected:**
+- **An interface for every rule class** (the first AI version had these). Each had one implementation and nothing to swap, so they only added indirection. Interfaces stay where there's a real seam: the database, the clock, token issuing.
+- **A separate Users table** (see 3.1).
+- **Storing the SLA status or the window start.** Both are calculated: the status at read time, and the window start from the escalation history. That way they can't go stale.
+
+## Known limitations
+
+- **Assignment race:** two tickets created at the same moment can both go to an agent with room for only one, because workloads are read and written without a lock.
+- **SLA filter:** it's tested by hand against SQL Server, not automatically, because SQLite has no `DATEDIFF`. Within one second of the at-risk boundary, the filter and the displayed status can disagree.
+- **Search at scale:** the search uses `LIKE '%…%'`, which can't use an index. With millions of tickets it would need full-text search.
+- **Tokens:** they can't be revoked before they expire (60 minutes). Only `/me` re-checks whether the agent is still active.
+- **Token storage:** the token is kept in `sessionStorage`, so an XSS bug could leak it. An HttpOnly cookie would be safer.
+- **No login rate limiting or lockout,** so passwords can be guessed online.
+- **Long names:** `EscalatedBy` is limited to 100 characters, but agent names can be up to 200.
+- **Migrations on startup** happen only in Development. Production would use a migration bundle as a release step (see Docker).
+- **Out of scope, not built:** registration, password reset, roles and permissions, OAuth/SSO, refresh tokens, MFA, notifications, real-time updates, CI, caching, HTTPS in the container, and the 2.5 SLA report.
+
+## AI usage
+
+**Tools and what for:**
+- [Antigravity]: To understand the codebase and get an idea on how to complete the tasks
+- [Claude Code]: Reviewing and rewriting the code, debugging the error messages, backend/frontend for 2.2–3.3, Docker, tests
+
+**A workflow that worked:** [e.g. one task at a time: ask for the change, read the diff,
+run the tests, check it by hand (Swagger / curl / the app), then commit it myself]
+
+**Accepted as-is:** [one concrete thing, e.g. the JWT setup, a test file, the Dockerfile]
+and why you were comfortable with it.
+
+**Changed or rejected:**
+- Antigravity's 2.1 code: rejected because [SLA hours in three places, an interface with
+  one implementation, duplicated escalation checks, rules depending on AgentDto]
+- [anything else you pushed back on, e.g. the README being too long and AI-sounding]
+
+**Bugs AI introduced or helped find:**
+- Introduced: `>` instead of `>=` on the agent limit; At risk never calculated (the evaluator
+  wasn't given the window), both in the first 2.1 version.
+- Found: `/health` hung for over a minute with the database down, because of the retry
+  policy; fixed with a 5 s timeout. [plus the 3.1 handler argument-order compile error,
+  if that was AI-generated]
+
+**How generated code was verified:**
+- Unit, integration and frontend tests (`npm test`), including boundary cases.
+- Broke the fallback policy on purpose to check the tests fail (6 did).
+- Manual checks against SQL Server: SLA filter counts matched the displayed statuses,
+  escalation status codes, login over curl and the UI.
+- Docker checks listed in the Docker section.
