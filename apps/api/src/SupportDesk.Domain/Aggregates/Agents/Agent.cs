@@ -31,6 +31,12 @@ public sealed class Agent : AggregateRoot
 
     public string Email { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// The salted hash of the agent's password (ASP.NET Core Identity's PBKDF2 format). The
+    /// password itself is never stored. Empty until a password has been set.
+    /// </summary>
+    public string PasswordHash { get; private set; } = string.Empty;
+
     /// <summary>Inactive agents keep their history but take no new work.</summary>
     public bool IsActive { get; private set; }
 
@@ -51,6 +57,14 @@ public sealed class Agent : AggregateRoot
         }
 
         _specializations.Add(new AgentSpecialization(categoryId));
+    }
+
+    /// <summary>Stores a hash produced by a password hasher; this aggregate never sees the password.</summary>
+    public void SetPasswordHash(string passwordHash)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
+
+        PasswordHash = passwordHash;
     }
 
     /// <summary>Stops the agent from taking new work. Their history is kept.</summary>

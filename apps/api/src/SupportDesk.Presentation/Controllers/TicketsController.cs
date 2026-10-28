@@ -8,6 +8,7 @@ using SupportDesk.Application.Features.Tickets.Commands.RaiseTicket;
 using SupportDesk.Application.Features.Tickets.Queries.GetTicket;
 using SupportDesk.Application.Features.Tickets.Queries.GetTicketEscalations;
 using SupportDesk.Application.Features.Tickets.Queries.SearchTickets;
+using SupportDesk.Presentation.Authentication;
 
 namespace SupportDesk.Presentation.Controllers;
 
@@ -69,7 +70,7 @@ public sealed class TicketsController : ControllerBase
         EscalateTicketRequest request,
         [FromServices] EscalateTicketCommandHandler handler,
         CancellationToken ct) =>
-        handler.HandleAsync(id, request, ct);
+        handler.HandleAsync(id, request, User.AgentName(), ct);
 
     /// <summary>The ticket's escalation history, newest first.</summary>
     [HttpGet("{id:int}/escalations")]

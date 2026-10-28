@@ -47,6 +47,8 @@ Full requirements are in **[`ASSIGNMENT_CANDIDATE.md`](ASSIGNMENT_CANDIDATE.md)*
 
 ```bash
 cp .env.example .env          # optional, every value has a working default
+dotnet user-secrets set "Jwt:SigningKey" "$(openssl rand -base64 48)" \
+  --project apps/api/src/SupportDesk.Presentation   # once: the key that signs access tokens
 npm install                   # installs the web app
 npm run db:up                 # SQL Server 2022 in Docker on localhost:1433
 npm run api                   # terminal 1: migrates, seeds, then serves the API
@@ -249,3 +251,33 @@ and 40 tickets across every status, priority and SLA state.
 **Deliberately not tested:**
 - **The SQL `slaStatus` filter:** it uses SQL Server's `DATEDIFF`, which the Sqlite test database can't run. It was checked by hand against SQL Server (see 2.2).
 - **EF mapping and the migration:** covered by the existing `PersistenceModelTests`, plus the manual run.
+
+## Authentication
+
+### 3.1. Backend
+
+**Development login:** every seeded agent signs in with their email (for example `alex.turner@northwind-support.example`) and the password **`Test_password`**. This password is a local fixture: it exists only in the development seed and is hashed when the seed runs. Yuki Tanaka is inactive, so she can't sign in. A database seeded before passwords existed gets this password on the next start. If your local database was seeded with an earlier development password, run `docker compose down -v` to re-seed it.
+
+**What was built:**
+- `POST /api/auth/login` (open to everyone) returns `{ accessToken, expiresAtUtc, agent: { id, fullName, email } }`. A wrong email, a wrong password and an inactive agent all get the same 401 with the same message, `Invalid email or password.` A malformed request gets 400.
+- `GET /api/auth/me` returns the signed-in agent, or 401. It reads the agent from the database rather than trusting the token, so an agent deactivated since signing in is refused.
+- Every other endpoint requires a valid token. This is enforced in one place, by an authorization **fallback policy**, so a new controller is protected without any extra code; endpoints opt out with `[AllowAnonymous]`. Login and Swagger stay open, and Swagger has an Authorize button for pasting a token.
+- `POST /api/tickets/{id}/escalate` no longer accepts `escalatedBy`. The name is taken from the token's `name` claim, so a client can't record someone else as the escalator.
+
+**Decisions made:**
+- **Credentials live in a `PasswordHash` column on `Agents`, not a separate Users table** (migration `AddAgentPasswordHash`). Every user is an agent, one-to-one, with the same email, the same active flag and nothing else to hold. A Users table would add a join and a second copy of the email and the active flag, for no benefit. If customers or administrators ever sign in, that would be the point to split it out.
+- **Hashing:** ASP.NET Core Identity's `PasswordHasher` (PBKDF2 with HMAC-SHA512, a random salt for every password, 100,000 iterations). When a hash was made with older settings, it is upgraded on the next successful login.
+- **Same response for every failure:** an unknown email still runs one password check against a decoy hash, so it takes as long as a wrong password and the timing doesn't reveal which emails belong to agents.
+- **Token:** an HMAC-SHA256 JWT with the claims `sub` (agent id), `name` and `email`, valid for **60 minutes** (`Jwt:AccessTokenMinutes`). An hour covers a working session without a refresh token (out of scope), and limits how long a stolen token is useful. Issuer, audience, signature, algorithm and expiry are all checked, with 30 seconds of allowed clock difference. Tokens are issued and checked from the same `JwtOptions`, so the two can't disagree.
+- **Signing key:** `Jwt:SigningKey` appears in no appsettings file and nowhere in the code. In development it lives in user-secrets (stored outside the repository); anywhere else it is the `Jwt__SigningKey` environment variable, listed in `.env.example`. The API refuses to start if the key is missing or shorter than 32 bytes.
+
+**What would change for production:**
+- Keep the signing key in a secret store, and rotate it.
+- Use short-lived access tokens together with refresh tokens, plus a way to revoke tokens.
+- Lock accounts or rate-limit after repeated failed logins.
+- Require HTTPS everywhere.
+
+**Known limitations:**
+- **No rate limiting or lockout,** so passwords can be guessed online.
+- **Tokens can't be revoked before they expire.** `/me` turns away a deactivated agent, but the other endpoints only check that the token is valid, so a deactivated agent's token keeps working for up to an hour.
+- **Long names:** `EscalatedBy` is limited to 100 characters, while agent names can be up to 200. An agent with a very long name couldn't escalate.

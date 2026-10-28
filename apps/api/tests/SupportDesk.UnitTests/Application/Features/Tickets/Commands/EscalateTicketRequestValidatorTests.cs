@@ -13,27 +13,17 @@ public class EscalateTicketRequestValidatorTests
     [InlineData("  1234  ", false)]
     [InlineData("", false)]
     public void Reason_MustBeAtLeastFiveCharactersOnceTrimmed(string reason, bool valid) =>
-        Assert.Equal(valid, _validator.Validate(new EscalateTicketRequest(reason, "Team lead")).IsValid);
+        Assert.Equal(valid, _validator.Validate(new EscalateTicketRequest(reason)).IsValid);
 
     [Fact]
     public void Reason_MayBeExactly500Characters() =>
-        Assert.True(_validator.Validate(new EscalateTicketRequest(new string('x', 500), "Team lead")).IsValid);
+        Assert.True(_validator.Validate(new EscalateTicketRequest(new string('x', 500))).IsValid);
 
     [Fact]
     public void Reason_MayNotBe501Characters()
     {
-        var result = _validator.Validate(new EscalateTicketRequest(new string('x', 501), "Team lead"));
+        var result = _validator.Validate(new EscalateTicketRequest(new string('x', 501)));
 
         Assert.Contains(result.Errors, e => e.PropertyName == nameof(EscalateTicketRequest.Reason));
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void EscalatedBy_IsRequired(string escalatedBy)
-    {
-        var result = _validator.Validate(new EscalateTicketRequest("A valid reason", escalatedBy));
-
-        Assert.Contains(result.Errors, e => e.PropertyName == nameof(EscalateTicketRequest.EscalatedBy));
     }
 }

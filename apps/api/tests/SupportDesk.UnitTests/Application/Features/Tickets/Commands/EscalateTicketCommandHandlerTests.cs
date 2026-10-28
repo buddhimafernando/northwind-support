@@ -9,7 +9,8 @@ namespace SupportDesk.UnitTests.Application.Features.Tickets.Commands;
 
 public class EscalateTicketCommandHandlerTests
 {
-    private static readonly EscalateTicketRequest Request = new("Customer is losing sales", "Team lead");
+    private static readonly EscalateTicketRequest Request = new("Customer is losing sales");
+    private const string SignedInAgent = "Team lead";
 
     [Fact]
     public async Task HandleAsync_EscalatesFromNow_AndStoresTheHistoryRow()
@@ -19,7 +20,7 @@ public class EscalateTicketCommandHandlerTests
         var ticket = context.ExistingTicket(new TicketBuilder().WithPriority(TicketPriority.Medium).AssignedTo(1).Build());
         context.Clock.Advance(TimeSpan.FromHours(10));
 
-        await context.EscalateTicket.HandleAsync(ticket.Id, Request, CancellationToken.None);
+        await context.EscalateTicket.HandleAsync(ticket.Id, Request, SignedInAgent, CancellationToken.None);
 
         Assert.Equal(TicketPriority.High, ticket.Priority);
         Assert.Equal(context.Clock.UtcNow.AddHours(8), ticket.DueAtUtc);
@@ -38,7 +39,7 @@ public class EscalateTicketCommandHandlerTests
         var context = new TicketCommandTestContext();
 
         await Assert.ThrowsAsync<NotFoundException>(
-            () => context.EscalateTicket.HandleAsync(404, Request, CancellationToken.None));
+            () => context.EscalateTicket.HandleAsync(404, Request, SignedInAgent, CancellationToken.None));
 
         context.VerifySaved(Times.Never());
     }
@@ -50,7 +51,7 @@ public class EscalateTicketCommandHandlerTests
         var ticket = context.ExistingTicket(new TicketBuilder().WithPriority(TicketPriority.Critical).Build());
 
         var exception = await Assert.ThrowsAsync<BusinessRuleViolationException>(
-            () => context.EscalateTicket.HandleAsync(ticket.Id, Request, CancellationToken.None));
+            () => context.EscalateTicket.HandleAsync(ticket.Id, Request, SignedInAgent, CancellationToken.None));
 
         Assert.Contains("already Critical", exception.Message);
         context.AgentQueries.Verify(a => a.GetTriageCandidatesAsync(It.IsAny<CancellationToken>()), Times.Never());
@@ -66,7 +67,7 @@ public class EscalateTicketCommandHandlerTests
         context.Candidates.Add(new AgentCandidate(2, "Ben Osei", true, 8, 3, []));
         var ticket = context.ExistingTicket(new TicketBuilder().AssignedTo(1).Build());
 
-        await context.EscalateTicket.HandleAsync(ticket.Id, Request, CancellationToken.None);
+        await context.EscalateTicket.HandleAsync(ticket.Id, Request, SignedInAgent, CancellationToken.None);
 
         Assert.Equal(2, ticket.AssignedAgentId);
         Assert.Equal(1, context.AddedEscalation?.FromAgentId);
@@ -80,7 +81,7 @@ public class EscalateTicketCommandHandlerTests
         var ticket = context.ExistingTicket(new TicketBuilder().WithStatus(TicketStatus.Resolved).Build());
 
         var exception = await Assert.ThrowsAsync<BusinessRuleViolationException>(
-            () => context.EscalateTicket.HandleAsync(ticket.Id, Request, CancellationToken.None));
+            () => context.EscalateTicket.HandleAsync(ticket.Id, Request, SignedInAgent, CancellationToken.None));
 
         Assert.Contains("Resolved", exception.Message);
         Assert.Equal(TicketPriority.Medium, ticket.Priority);

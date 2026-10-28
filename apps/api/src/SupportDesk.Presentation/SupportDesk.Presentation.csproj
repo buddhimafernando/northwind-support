@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <!-- Development keeps the JWT signing key in user-secrets, outside the repository. -->
+  <PropertyGroup>
+    <UserSecretsId>e699902e-52b2-4270-bc08-828134c54dd9</UserSecretsId>
+  </PropertyGroup>
+
   <!-- The Web API and composition root. Maps HTTP to the application's commands and queries. -->
   <ItemGroup>
     <ProjectReference Include="../SupportDesk.Application/SupportDesk.Application.csproj" />
@@ -7,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <!-- Required for the EF Core CLI to use this project as its startup project. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

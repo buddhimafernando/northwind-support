@@ -27,7 +27,9 @@ public sealed class EscalateTicketCommandHandler(
 {
     /// <exception cref="NotFoundException">No ticket has this id.</exception>
     /// <exception cref="BusinessRuleViolationException">The ticket is Critical, Resolved or Closed.</exception>
-    public async Task<EscalationResultDto> HandleAsync(int id, EscalateTicketRequest request, CancellationToken ct)
+    /// <param name="escalatedBy">The signed-in agent's name, taken from their access token.</param>
+    public async Task<EscalationResultDto> HandleAsync(
+        int id, EscalateTicketRequest request, string escalatedBy, CancellationToken ct)
     {
         var ticket = await tickets.GetByIdAsync(id, ct) ?? throw new NotFoundException("Ticket", id);
 
@@ -46,7 +48,7 @@ public sealed class EscalateTicketCommandHandler(
         var decision = triage.ForEscalation(
             ticket, category, customer.Tier, await agents.GetTriageCandidatesAsync(ct), now);
 
-        var escalation = ticket.Escalate(decision, request.Reason, request.EscalatedBy, now);
+        var escalation = ticket.Escalate(decision, request.Reason, escalatedBy, now);
 
         await tickets.AddEscalationAsync(escalation, ct);
         await unitOfWork.SaveChangesAsync(ct);
