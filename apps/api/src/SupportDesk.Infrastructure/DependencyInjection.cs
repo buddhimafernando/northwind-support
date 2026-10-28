@@ -18,6 +18,8 @@ namespace SupportDesk.Infrastructure;
 /// </summary>
 public static class DependencyInjection
 {
+    private static readonly TimeSpan HealthCheckTimeout = TimeSpan.FromSeconds(5);
+
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -30,6 +32,25 @@ public static class DependencyInjection
             options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
 
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<SupportDbContext>());
+
+        // Behind GET /health: can the API reach the database? Capped at a few seconds, because
+        // the connection's retry policy would otherwise keep a probe waiting for over a minute.
+        services.AddHealthChecks().AddDbContextCheck<SupportDbContext>(
+            "database",
+            customTestQuery: async (db, ct) =>
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(HealthCheckTimeout);
+
+                try
+                {
+                    return await db.Database.CanConnectAsync(timeout.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    return false;
+                }
+            });
 
         services.AddSingleton<IClock, SystemClock>();
 

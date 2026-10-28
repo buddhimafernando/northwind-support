@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi;
 using SupportDesk.Application;
 using SupportDesk.Domain.Aggregates.Tickets;
@@ -6,6 +7,7 @@ using SupportDesk.Infrastructure;
 using SupportDesk.Presentation.Authentication;
 using SupportDesk.Presentation.Extensions;
 using SupportDesk.Presentation.Filters;
+using SupportDesk.Presentation.Health;
 using SupportDesk.Presentation.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -50,7 +52,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 // SLA windows and thresholds live in configuration; a missing or broken section stops startup.
 var slaPolicy = builder.Configuration.GetSection(SlaPolicy.SectionName).Get<SlaPolicy>()
     ?? throw new InvalidOperationException(
-        $"Configuration section '{SlaPolicy.SectionName}' is missing. See appsettings.Development.json.");
+        $"Configuration section '{SlaPolicy.SectionName}' is missing. See appsettings.json.");
 slaPolicy.Validate();
 builder.Services.AddSingleton(slaPolicy);
 
@@ -75,6 +77,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Open without a token, like login: an orchestrator or load balancer has no token to send.
+app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = HealthReportWriter.WriteAsync })
+    .AllowAnonymous();
 
 app.Run();
 

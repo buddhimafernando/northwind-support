@@ -23,5 +23,24 @@ services:
       retries: 12
       start_period: 20s
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: supportdesk-api
+    # Only once SQL Server answers queries, not merely once its container has started.
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      # Development applies migrations and seeds demo data on start, and enables Swagger.
+      ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Development}"
+      # Reaches SQL Server by its service name on the compose network, not localhost.
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=SupportDesk;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Local_Dev_Password1};TrustServerCertificate=True;Encrypt=False"
+      # No default on purpose: the API refuses to start without a key of at least 32 bytes.
+      Jwt__SigningKey: "${Jwt__SigningKey:-}"
+    ports:
+      - "5080:8080"
+
 volumes:
   supportdesk-sql:

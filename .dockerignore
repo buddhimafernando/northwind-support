@@ -1,0 +1,30 @@
+# The Docker build context is the repository root; the API image only needs apps/api/src and
+# the root build files. Keep everything else - and anything secret - out of the context.
+
+# Build output and dependencies
+**/bin/
+**/obj/
+**/node_modules/
+
+# Version control and editor state
+.git/
+.vs/
+.idea/
+.vscode/
+
+# Secrets and environment files - never sent to the daemon, never baked into an image
+.env
+.env.*
+**/appsettings.Development.json
+**/appsettings.*.local.json
+**/secrets.json
+
+# The web app is not part of this image
+apps/web/
+
+# Not needed to build the API
+apps/api/tests/
+db/
+spec/
+*.md
+*.pdf

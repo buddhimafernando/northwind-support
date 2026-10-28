@@ -60,6 +60,16 @@ public sealed class AuthenticationTests(ApiFactory api) : IClassFixture<ApiFacto
     }
 
     [Fact]
+    public async Task Health_IsOpenWithoutAToken_AndReportsTheDatabase()
+    {
+        var response = await api.CreateClient().GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await JsonAsync(response);
+        Assert.Equal("Healthy", body.GetProperty("checks").GetProperty("database").GetString());
+    }
+
+    [Fact]
     public async Task ProtectedEndpoint_RejectsATamperedToken()
     {
         var client = await api.SignedInClientAsync();
