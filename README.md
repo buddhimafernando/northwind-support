@@ -281,3 +281,25 @@ and 40 tickets across every status, priority and SLA state.
 - **No rate limiting or lockout,** so passwords can be guessed online.
 - **Tokens can't be revoked before they expire.** `/me` turns away a deactivated agent, but the other endpoints only check that the token is valid, so a deactivated agent's token keeps working for up to an hour.
 - **Long names:** `EscalatedBy` is limited to 100 characters, while agent names can be up to 200. An agent with a very long name couldn't escalate.
+
+### 3.2. Frontend
+
+**What was built:**
+- **`/login` page (AU-9):** labelled email and password fields with the right `autocomplete` hints. Client validation (an email is required and must look like one; a password is required) stops bad input before any request. The button shows "Signing in..." while the request runs, and rejected credentials show the server's message, `Invalid email or password.`, as an alert.
+- **Token attached to every call (AU-10):** `api/client.ts` adds `Authorization: Bearer …` to every request, so no feature code deals with the token.
+- **Protected routes (AU-11):** every route except `/login` sits under `RequireAuth`. A signed-out visitor is redirected to `/login`, and after signing in is returned to the page they asked for, query string included; with no such page, they land on the ticket list.
+- **Header (AU-12):** shows "Signed in as Priya Nair" and a "Sign out" button that clears the session.
+- **Any 401 signs out (AU-13):** a 401 on a request that carried a token clears the session. `RequireAuth` follows the session, so the user is redirected to `/login` straight away, and back to where they were after signing in again. The app also calls `GET /api/auth/me` once per visit, so an expired token, or an agent deactivated since signing in, is caught on arrival rather than at the first action.
+- **Escalation:** the "Escalated by" field is gone; the panel shows who the escalation will be recorded under, from the session.
+
+**Where the token is kept, and the trade-off:** in `sessionStorage`, through `auth/session.ts`. React components read it via `useSyncExternalStore`, so every component updates together when someone signs in or out.
+- **Chosen because:** the session survives a page reload (memory alone would sign you out on every refresh), it is cleared when the tab is closed, and it isn't shared with other tabs or kept in long-lived storage the way `localStorage` would be.
+- **The cost:** any script running on the page can read it, so a cross-site scripting bug could steal the token for up to its 60-minute lifetime. React's escaping and the absence of `dangerouslySetInnerHTML` keep that risk low, but they don't remove it.
+- **The stronger alternative:** an `HttpOnly`, `Secure`, `SameSite` cookie set by the API, which scripts can't read. That needs CSRF protection and a cookie-based authentication scheme on the API, which is more than this task needs. It is the first thing to change for production.
+- **Stale requests:** a slow request that comes back 401 only clears the session if that session is still the current one, so it can't sign out an agent who has signed in again since.
+
+**Tests (Vitest):**
+- The client attaches the token, sends none when signed out, clears the session on a 401, and doesn't clear a newer session.
+- An unauthenticated visitor is redirected to login and returned to the page they wanted (path and query) after signing in.
+- Clearing the session mid-visit redirects to login.
+- The login page blocks invalid input without calling the API, shows the error for rejected credentials, and shows a pending state.

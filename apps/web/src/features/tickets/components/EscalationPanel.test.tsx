@@ -14,10 +14,9 @@ vi.mock('../../../api/tickets', () => ({
 
 const escalate = vi.mocked(ticketsApi.escalate);
 
-async function fillIn(reason: string, escalatedBy = 'Team lead') {
+async function fillIn(reason: string) {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText('Reason'), reason);
-  await user.type(screen.getByLabelText('Escalated by'), escalatedBy);
   await user.click(screen.getByRole('button', { name: 'Escalate ticket' }));
 }
 
@@ -73,7 +72,7 @@ describe('EscalationPanel', () => {
 
     await fillIn('  Customer is losing sales  ');
 
-    expect(escalate).toHaveBeenCalledWith(12, { reason: 'Customer is losing sales', escalatedBy: 'Team lead' });
+    expect(escalate).toHaveBeenCalledWith(12, { reason: 'Customer is losing sales' });
     expect(onEscalated).toHaveBeenCalledWith(result);
   });
 

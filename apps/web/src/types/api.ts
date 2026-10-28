@@ -106,7 +106,6 @@ export interface TicketEscalation {
 
 export interface EscalateTicketPayload {
   reason: string;
-  escalatedBy: string;
 }
 
 export interface EscalationResult {
@@ -173,6 +172,24 @@ export interface CustomerDetail {
   tier: CustomerTier;
   createdAtUtc: string;
   tickets: TicketListItem[];
+}
+
+/** The signed-in agent. */
+export interface CurrentAgent {
+  id: number;
+  fullName: string;
+  email: string;
+}
+
+export interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  expiresAtUtc: string;
+  agent: CurrentAgent;
 }
 
 /** RFC 7807 problem document, which is how the API reports every failure. */

@@ -1,29 +1,21 @@
 import { useState } from 'react';
 import { ApiError, toErrorMessage } from '../../../api/client';
 import { ticketsApi } from '../../../api/tickets';
+import { useSession } from '../../../auth/useSession';
 import { Field } from '../../../components/Field';
 import type { EscalationResult, TicketDetail } from '../../../types/api';
-import {
-  ESCALATED_BY_MAX_LENGTH,
-  REASON_MAX_LENGTH,
-  REASON_MIN_LENGTH,
-  validateEscalation,
-  whyNotEscalatable,
-  type EscalationErrors,
-  type EscalationForm,
-} from '../escalation';
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, validateReason, whyNotEscalatable } from '../escalation';
 
 interface EscalationPanelProps {
   ticket: TicketDetail;
   onEscalated: (result: EscalationResult) => void;
 }
 
-const emptyForm: EscalationForm = { reason: '', escalatedBy: '' };
-
-/** Raises the ticket's priority one level, with a reason. */
+/** Raises the ticket's priority one level, with a reason. Recorded against the signed-in agent. */
 export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
-  const [form, setForm] = useState<EscalationForm>(emptyForm);
-  const [errors, setErrors] = useState<EscalationErrors>({});
+  const session = useSession();
+  const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState<string>();
   const [isPending, setIsPending] = useState(false);
   const [submitError, setSubmitError] = useState<string>();
 
@@ -32,26 +24,23 @@ export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const validationErrors = validateEscalation(form);
-    setErrors(validationErrors);
+    const validationError = validateReason(reason);
+    setReasonError(validationError);
     setSubmitError(undefined);
 
-    if (Object.keys(validationErrors).length > 0) {
+    if (validationError) {
       return;
     }
 
     setIsPending(true);
 
     try {
-      const result = await ticketsApi.escalate(ticket.id, {
-        reason: form.reason.trim(),
-        escalatedBy: form.escalatedBy.trim(),
-      });
-      setForm((current) => ({ ...current, reason: '' }));
+      const result = await ticketsApi.escalate(ticket.id, { reason: reason.trim() });
+      setReason('');
       onEscalated(result);
     } catch (caught) {
       if (caught instanceof ApiError) {
-        setErrors(fromApiErrors(caught.fieldErrors));
+        setReasonError(caught.fieldErrors.Reason?.[0]);
       }
 
       setSubmitError(toErrorMessage(caught, 'Could not escalate the ticket.'));
@@ -69,13 +58,14 @@ export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
       ) : (
         <p className="field__hint">
           Raises the priority from {ticket.priority} by one level and restarts the SLA from now.
+          {session && ` Recorded as escalated by ${session.agent.fullName}.`}
         </p>
       )}
 
       <Field
         id="escalate-reason"
         label="Reason"
-        error={errors.reason}
+        error={reasonError}
         hint={`${REASON_MIN_LENGTH} to ${REASON_MAX_LENGTH} characters.`}
       >
         {(fieldProps) => (
@@ -83,22 +73,9 @@ export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
             {...fieldProps}
             rows={3}
             maxLength={REASON_MAX_LENGTH}
-            value={form.reason}
+            value={reason}
             disabled={Boolean(blocked) || isPending}
-            onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))}
-          />
-        )}
-      </Field>
-
-      <Field id="escalate-by" label="Escalated by" error={errors.escalatedBy}>
-        {(fieldProps) => (
-          <input
-            {...fieldProps}
-            type="text"
-            maxLength={ESCALATED_BY_MAX_LENGTH}
-            value={form.escalatedBy}
-            disabled={Boolean(blocked) || isPending}
-            onChange={(event) => setForm((current) => ({ ...current, escalatedBy: event.target.value }))}
+            onChange={(event) => setReason(event.target.value)}
           />
         )}
       </Field>
@@ -116,19 +93,4 @@ export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
       </div>
     </form>
   );
-}
-
-/** The API names fields in PascalCase ("Reason"); the form uses camelCase. */
-function fromApiErrors(fieldErrors: Record<string, string[]>): EscalationErrors {
-  const errors: EscalationErrors = {};
-
-  for (const [field, messages] of Object.entries(fieldErrors)) {
-    const key = field.charAt(0).toLowerCase() + field.slice(1);
-
-    if (key === 'reason' || key === 'escalatedBy') {
-      errors[key] = messages[0];
-    }
-  }
-
-  return errors;
 }

@@ -45,7 +45,6 @@ describe('TicketDetailPage', () => {
     );
 
     await user.type(await screen.findByLabelText('Reason'), 'Customer is losing sales');
-    await user.type(screen.getByLabelText('Escalated by'), 'Team lead');
     await user.click(screen.getByRole('button', { name: 'Escalate ticket' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('already Critical');
