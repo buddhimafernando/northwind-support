@@ -65,7 +65,7 @@ describe('useTicketList', () => {
       result.current.updateFilters({ status: 'InProgress' });
     });
 
-    // An immediate request is dispatched without waiting for debounce
+    // Dispatching An immediate request without waiting for debounce
     expect(getTickets).toHaveBeenCalledTimes(2);
     expect(getTickets).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: 'InProgress', page: 1 }),
@@ -81,7 +81,6 @@ describe('useTicketList', () => {
 
     expect(getTickets).toHaveBeenCalledTimes(1);
 
-    // Simulate fast typing across several keystrokes
     await act(async () => {
       result.current.updateFilters({ search: 'a' });
     });

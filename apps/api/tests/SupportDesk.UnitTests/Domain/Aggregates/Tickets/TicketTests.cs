@@ -1,5 +1,6 @@
 using SupportDesk.Domain.Aggregates.Tickets;
 using SupportDesk.Domain.Exceptions;
+using SupportDesk.Domain.Triage;
 using SupportDesk.UnitTests.TestDoubles;
 
 namespace SupportDesk.UnitTests.Domain.Aggregates.Tickets;
@@ -98,5 +99,44 @@ public class TicketTests
 
         Assert.Null(ticket.AssignedAgentId);
         Assert.Equal(Later, ticket.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void Escalate_AppliesTheDecision()
+    {
+        var ticket = new TicketBuilder().WithPriority(TicketPriority.Medium).AssignedTo(1).Build();
+        var decision = new TriageDecision(TicketPriority.High, "", Later.AddHours(8), "", 2, "");
+
+        ticket.Escalate(decision, Later);
+
+        Assert.Equal(TicketPriority.High, ticket.Priority);
+        Assert.Equal(Later.AddHours(8), ticket.DueAtUtc);
+        Assert.Equal(2, ticket.AssignedAgentId);
+        Assert.Equal(Later, ticket.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void Escalate_WhenAlreadyCritical_ThrowsAndChangesNothing()
+    {
+        var ticket = new TicketBuilder().WithReference("TCK-0099").WithPriority(TicketPriority.Critical).Build();
+        var decision = new TriageDecision(TicketPriority.Critical, "", Later, "", 2, "");
+
+        var exception = Assert.Throws<BusinessRuleViolationException>(() => ticket.Escalate(decision, Later));
+
+        Assert.Contains("TCK-0099 is already Critical", exception.Message);
+        Assert.Null(ticket.AssignedAgentId);
+    }
+
+    [Theory]
+    [InlineData(TicketStatus.Resolved)]
+    [InlineData(TicketStatus.Closed)]
+    public void Escalate_WhenFinished_SaysWhichStatusBlocksIt(TicketStatus status)
+    {
+        var ticket = new TicketBuilder().WithReference("TCK-0010").WithStatus(status).Build();
+        var decision = new TriageDecision(TicketPriority.High, "", Later, "", null, "");
+
+        var exception = Assert.Throws<BusinessRuleViolationException>(() => ticket.Escalate(decision, Later));
+
+        Assert.Contains($"TCK-0010 is {status}", exception.Message);
     }
 }

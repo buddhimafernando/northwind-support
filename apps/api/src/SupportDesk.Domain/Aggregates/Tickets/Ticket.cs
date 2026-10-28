@@ -1,5 +1,6 @@
 using SupportDesk.Domain.Common;
 using SupportDesk.Domain.Exceptions;
+using SupportDesk.Domain.Triage;
 
 namespace SupportDesk.Domain.Aggregates.Tickets;
 
@@ -49,8 +50,8 @@ public sealed class Ticket : AggregateRoot
     public bool IsOpen => Status is not (TicketStatus.Resolved or TicketStatus.Closed);
 
     /// <summary>
-    /// Raises a new ticket for a customer. It starts as <see cref="TicketStatus.New"/>, with no
-    /// owner and no due date.
+    /// Raises a new ticket for a customer. It starts as <see cref="TicketStatus.New"/> with no
+    /// owner, and with the due date triage decided, if any.
     /// </summary>
     public static Ticket Raise(
         string reference,
@@ -59,7 +60,8 @@ public sealed class Ticket : AggregateRoot
         int customerId,
         int categoryId,
         TicketPriority priority,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        DateTime? dueAtUtc = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reference);
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
@@ -75,7 +77,8 @@ public sealed class Ticket : AggregateRoot
             Priority = priority,
             Status = TicketStatus.New,
             CreatedAtUtc = nowUtc,
-            UpdatedAtUtc = nowUtc
+            UpdatedAtUtc = nowUtc,
+            DueAtUtc = dueAtUtc
         };
     }
 
@@ -110,5 +113,37 @@ public sealed class Ticket : AggregateRoot
     {
         AssignedAgentId = agentId;
         UpdatedAtUtc = nowUtc;
+    }
+
+    /// <summary>
+    /// Applies an escalation decided by <see cref="TicketTriage.ForEscalation"/>
+    /// the raised priority, the due date recomputed from now, and the owner it kept or chose.
+    /// </summary>
+    /// <exception cref="BusinessRuleViolationException">The ticket cannot be escalated.</exception>
+    public void Escalate(TriageDecision decision, DateTime nowUtc)
+    {
+        EnsureCanBeEscalated();
+
+        Priority = decision.Priority;
+        DueAtUtc = decision.DueAtUtc;
+        AssignedAgentId = decision.AssignedAgentId;
+        UpdatedAtUtc = nowUtc;
+    }
+
+    /// <summary>Only open tickets below Critical can be escalated.</summary>
+    /// <exception cref="BusinessRuleViolationException">The ticket is finished, or already Critical.</exception>
+    public void EnsureCanBeEscalated()
+    {
+        if (!IsOpen)
+        {
+            throw new BusinessRuleViolationException(
+                $"Ticket {Reference} is {Status} and cannot be escalated.");
+        }
+
+        if (Priority == TicketPriority.Critical)
+        {
+            throw new BusinessRuleViolationException(
+                $"Ticket {Reference} is already Critical and cannot be escalated further.");
+        }
     }
 }

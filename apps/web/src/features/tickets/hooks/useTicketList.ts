@@ -48,8 +48,8 @@ export function useTicketList() {
     };
   }, [filters.search]);
 
-  // All filters except search. Any change to these (status, priority, Task 2 SLA, etc.)
-  // triggers an immediate request without special wiring.
+  // All filters except search. 
+  // Any change to these (status, priority, Task 2 SLA) triggers an immediate request without special wiring.
   const nonSearchFiltersKey = useMemo(() => {
     const copy = { ...filters };
     delete (copy as Partial<TicketFilters>).search;

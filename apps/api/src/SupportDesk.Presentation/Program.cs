@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using SupportDesk.Application;
+using SupportDesk.Domain.Aggregates.Tickets;
 using SupportDesk.Infrastructure;
 using SupportDesk.Presentation.Extensions;
 using SupportDesk.Presentation.Filters;
@@ -29,6 +30,13 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// SLA windows and thresholds live in configuration; a missing or broken section stops startup.
+var slaPolicy = builder.Configuration.GetSection(SlaPolicy.SectionName).Get<SlaPolicy>()
+    ?? throw new InvalidOperationException(
+        $"Configuration section '{SlaPolicy.SectionName}' is missing. See appsettings.Development.json.");
+slaPolicy.Validate();
+builder.Services.AddSingleton(slaPolicy);
 
 var app = builder.Build();
 

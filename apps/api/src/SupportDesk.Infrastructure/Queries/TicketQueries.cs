@@ -14,7 +14,7 @@ namespace SupportDesk.Infrastructure.Queries;
 /// Ticket reads. Projected in the database and never tracked. Aggregates hold only each
 /// other's ids, so the customer, category and agent labels are joined in here, on the read side.
 /// </summary>
-public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQueries
+public sealed class TicketQueries(SupportDbContext db, IClock clock, SlaPolicy slaPolicy) : ITicketQueries
 {
     /// <remarks>
     /// Sorts and pages every ticket. The filter values bound into <paramref name="query"/>
@@ -48,7 +48,8 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQu
                 UpdatedAtUtc = x.Ticket.UpdatedAtUtc,
                 DueAtUtc = x.Ticket.DueAtUtc,
                 ResolvedAtUtc = x.Ticket.ResolvedAtUtc,
-                SlaStatus = SlaEvaluator.Evaluate(x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now)
+                SlaStatus = SlaEvaluator.Evaluate(
+                    x.Ticket.CreatedAtUtc, x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now, slaPolicy.AtRiskThresholdPercent)
             })
             .ToListAsync(ct);
 
@@ -78,7 +79,8 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQu
                 UpdatedAtUtc = x.Ticket.UpdatedAtUtc,
                 DueAtUtc = x.Ticket.DueAtUtc,
                 ResolvedAtUtc = x.Ticket.ResolvedAtUtc,
-                SlaStatus = SlaEvaluator.Evaluate(x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now)
+                SlaStatus = SlaEvaluator.Evaluate(
+                    x.Ticket.CreatedAtUtc, x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now, slaPolicy.AtRiskThresholdPercent)
             })
             .FirstOrDefaultAsync(ct);
     }
@@ -105,7 +107,8 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQu
                 UpdatedAtUtc = x.Ticket.UpdatedAtUtc,
                 DueAtUtc = x.Ticket.DueAtUtc,
                 ResolvedAtUtc = x.Ticket.ResolvedAtUtc,
-                SlaStatus = SlaEvaluator.Evaluate(x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now)
+                SlaStatus = SlaEvaluator.Evaluate(
+                    x.Ticket.CreatedAtUtc, x.Ticket.DueAtUtc, x.Ticket.ResolvedAtUtc, now, slaPolicy.AtRiskThresholdPercent)
             })
             .ToListAsync(ct);
     }

@@ -123,3 +123,30 @@ and 40 tickets across every status, priority and SLA state.
 **Root cause:** `GET /api/tickets` bound the filter values (search, status, priority, categoryId, customerId, assignedAgentId, unassignedOnly) into `TicketQuery`, but `TicketQueries.GetPagedAsync` never used them, so it counted, sorted and paged every ticket.
 **Fix:** Added `ApplyFilters`, which chains one `.Where` per supplied filter (so they combine with AND) on the `IQueryable` before `CountAsync` and paging. totalCount and totalPages now reflect the filtered set, and nothing is filtered in C#. A new filter, such as SLA status, is one more `if` block in `ApplyFilters`.
 **How to verify:** Run `npm run api` and test endpoints with filter combinations in Swagger (`https://localhost:7043/swagger`) or the web app.
+
+## Ticket escalation & assignment
+
+### 2.1. Business rules
+
+**Root cause:** The first AI-generated version worked but was hard to follow. It had an interface with only one implementation. The SLA hours were written in three places (defaults in a class, a fallback `switch` and a second copy in `appsettings.json`). The escalation checks existed twice. The rules depended on `AgentDto`, which is an API response object. It also had two bugs:
+- An agent over their open-ticket limit still counted as eligible to keep a ticket (`>` where `>=` was needed).
+- At-risk status was never calculated, because the SLA evaluator was called without an SLA window.
+
+**Fix:** The rules now live in a few small, pure classes in the domain layer, and ticket creation and escalation share them:
+- `SlaPolicy` (BR-2, BR-3, BR-6) is read from the `Sla` section of `appsettings.Development.json` and checked at startup. A missing or invalid value stops the app instead of falling back to numbers hidden in code.
+- `SlaEvaluator` (BR-8) takes "now" and the at-risk threshold as parameters, so the status is always derived and never stored.
+- `AgentSelector` (BR-4, BR-5) has `Choose`, used on create, and `KeepOrChoose`, used on escalation. It works on `AgentCandidate`, a small domain record, not on API objects.
+- `TicketTriage` (BR-1) puts the rules together and returns a `TriageDecision` with a readable reason for the priority, the SLA window and the assignment.
+- `Ticket.EnsureCanBeEscalated()` (BR-7) is the only place that blocks escalating a Critical, Resolved or Closed ticket.
+
+**Decisions made:**
+- **Tie-break:** when agents have the same number of open tickets, the one with the lowest id wins, so the result doesn't depend on load order.
+- **Keeping the current owner on escalation:** they may keep the ticket even at their limit (for example 6/6), because this ticket is already one of their open tickets. To take a new ticket, an agent must be strictly below their limit.
+- **Due vs Breached:** a ticket is Breached only once "now" is strictly after the due time. At the exact due time it is At risk.
+- **1-hour floor:** applies only to Premium customers, as BR-3 is written.
+- **Category rules:** come from the `RequiresSpecialist` and `ForcesCriticalPriority` flags on the category. No category names are hard-coded.
+
+**Skipped (will be done in 2.2):**
+- The escalation history row, which needs the `TicketEscalations` table and its migration.
+- Calling the triage from `POST /api/tickets` and the escalate endpoint.
+- Measuring the SLA window from the last escalation. For now the at-risk check measures from `CreatedAtUtc`.

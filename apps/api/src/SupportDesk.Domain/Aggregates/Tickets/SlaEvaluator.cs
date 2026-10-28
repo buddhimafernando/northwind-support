@@ -6,10 +6,33 @@ namespace SupportDesk.Domain.Aggregates.Tickets;
 /// </summary>
 public static class SlaEvaluator
 {
-    public static SlaStatus Evaluate(DateTime? dueAtUtc, DateTime? resolvedAtUtc, DateTime nowUtc) =>
-        dueAtUtc is null ? SlaStatus.NotApplicable
-        : resolvedAtUtc is not null
-            ? (resolvedAtUtc <= dueAtUtc ? SlaStatus.Met : SlaStatus.Breached)
-        : nowUtc > dueAtUtc ? SlaStatus.Breached
-        : SlaStatus.WithinSla;
+    /// <param name="windowStartUtc">When the current window began: creation, or the last escalation.</param>
+    /// <param name="atRiskThresholdPercent">See <see cref="SlaPolicy.AtRiskThresholdPercent"/>.</param>
+    public static SlaStatus Evaluate(
+        DateTime windowStartUtc,
+        DateTime? dueAtUtc,
+        DateTime? resolvedAtUtc,
+        DateTime nowUtc,
+        double atRiskThresholdPercent)
+    {
+        if (dueAtUtc is not { } due)
+        {
+            return SlaStatus.NotApplicable;
+        }
+
+        if (resolvedAtUtc is { } resolved)
+        {
+            return resolved <= due ? SlaStatus.Met : SlaStatus.Breached;
+        }
+
+        if (nowUtc > due)
+        {
+            return SlaStatus.Breached;
+        }
+
+        var remaining = due - nowUtc;
+        var atRiskFrom = (due - windowStartUtc) * (atRiskThresholdPercent / 100);
+
+        return remaining <= atRiskFrom ? SlaStatus.AtRisk : SlaStatus.WithinSla;
+    }
 }
