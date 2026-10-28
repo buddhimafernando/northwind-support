@@ -189,3 +189,29 @@ and 40 tickets across every status, priority and SLA state.
 **Known limitations:**
 - **Concurrent requests:** two tickets created at the same moment can both be given to an agent who only had room for one, because workloads are read and then written without a lock.
 - **SLA filter tests:** the filter uses SQL Server's `DATEDIFF`, which the Sqlite test database doesn't support, so it was verified manually against SQL Server rather than with unit tests.
+
+### 2.3. Frontend
+
+**What was built:**
+- **One SLA indicator:** `SlaIndicator` replaces `SlaCell` and is used by both the ticket list and the ticket page. Each of the five states has its own words and symbol as well as its own colour (Within SLA ◷, At risk !, Breached ✕, Met ✓, No SLA –), so the state never depends on colour alone. The labels live in `features/tickets/sla.ts`, and the filter dropdown uses the same ones.
+- **SLA filter:** a new "SLA" dropdown in the filter bar. Because of the DEFECT-117 fix, it needed nothing beyond the new `slaStatus` field and one more query parameter: changing it sends a request immediately, and a test checks this.
+- **Escalation panel** on the ticket page:
+  - Fields for the reason and who is escalating.
+  - Client validation in `features/tickets/escalation.ts` mirrors the server: 5–500 characters measured after trimming, a required name of up to 100 characters. Invalid input never calls the API.
+  - The button shows a pending state while the request runs, and any server error, including 409, is shown under the form.
+  - On success, the ticket updates from the response and the history reloads, without a full page reload.
+- **Escalation history:** lists each escalation's priority, agent and due-date change (shown as "before → after"), the reason, who and when. It loads through its own hook, `useTicketEscalations`, and has loading, error and empty states.
+- **Triage result after create:** the confirmation shows the priority, due date and assigned agent, each with its reason. When nobody was eligible it shows "Unassigned" with the reason.
+- **Blocked escalations:** the escalate form is disabled for Critical, Resolved and Closed tickets, with a sentence saying why. A rejection from the server is still shown if the ticket changed in another tab.
+
+**Decisions made:**
+- **"Escalated by":** this is a text field until Task 3, when it will come from the login token instead.
+- **After a 409:** the ticket on screen is left as it was and the server's message is shown. The reason the user typed is kept, so they don't lose it.
+- **History refresh:** the history is reloaded from the server after an escalation, rather than adding the returned row locally, so the list always matches the database.
+
+**Tests (Vitest):**
+- A reason that is too short once trimmed blocks submission, and the API is never called.
+- A 409 is shown, and the ticket is left unchanged.
+- The SLA indicator renders all five states with different text and a different style.
+- The escalate form is disabled, with an explanation, for Critical, Resolved and Closed tickets.
+- The SLA filter sends a request immediately.

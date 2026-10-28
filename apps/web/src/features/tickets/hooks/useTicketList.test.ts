@@ -72,6 +72,23 @@ describe('useTicketList', () => {
     );
   });
 
+  it('sends the SLA filter immediately, like any other filter', async () => {
+    const { result } = renderHook(() => useTicketList());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    await act(async () => {
+      result.current.updateFilters({ slaStatus: 'AtRisk' });
+    });
+
+    expect(getTickets).toHaveBeenCalledTimes(2);
+    expect(getTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ slaStatus: 'AtRisk', page: 1 }),
+    );
+  });
+
   it('does not send requests on each search keystroke until debounce window elapses', async () => {
     const { result } = renderHook(() => useTicketList());
 
