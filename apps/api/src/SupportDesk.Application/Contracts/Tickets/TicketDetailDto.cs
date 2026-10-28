@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using SupportDesk.Domain.Aggregates.Tickets;
 
 namespace SupportDesk.Application.Contracts.Tickets;
@@ -35,4 +36,8 @@ public sealed class TicketDetailDto
 
     /// <summary>Derived from the dates above; never stored.</summary>
     public SlaStatus SlaStatus { get; set; }
+
+    /// <summary>Only set in the response to POST /api/tickets.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TriageDto? Triage { get; set; }
 }

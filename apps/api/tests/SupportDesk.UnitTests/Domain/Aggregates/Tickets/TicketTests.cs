@@ -102,17 +102,28 @@ public class TicketTests
     }
 
     [Fact]
-    public void Escalate_AppliesTheDecision()
+    public void Escalate_AppliesTheDecision_AndRecordsBeforeAndAfter()
     {
         var ticket = new TicketBuilder().WithPriority(TicketPriority.Medium).AssignedTo(1).Build();
+        var dueBefore = ticket.DueAtUtc;
         var decision = new TriageDecision(TicketPriority.High, "", Later.AddHours(8), "", 2, "");
 
-        ticket.Escalate(decision, Later);
+        var escalation = ticket.Escalate(decision, "  Customer is losing sales  ", "Team lead", Later);
 
         Assert.Equal(TicketPriority.High, ticket.Priority);
         Assert.Equal(Later.AddHours(8), ticket.DueAtUtc);
         Assert.Equal(2, ticket.AssignedAgentId);
         Assert.Equal(Later, ticket.UpdatedAtUtc);
+
+        Assert.Equal(TicketPriority.Medium, escalation.FromPriority);
+        Assert.Equal(TicketPriority.High, escalation.ToPriority);
+        Assert.Equal(1, escalation.FromAgentId);
+        Assert.Equal(2, escalation.ToAgentId);
+        Assert.Equal(dueBefore, escalation.FromDueAtUtc);
+        Assert.Equal(Later.AddHours(8), escalation.ToDueAtUtc);
+        Assert.Equal("Customer is losing sales", escalation.Reason);
+        Assert.Equal("Team lead", escalation.EscalatedBy);
+        Assert.Equal(Later, escalation.EscalatedAtUtc);
     }
 
     [Fact]
@@ -121,7 +132,7 @@ public class TicketTests
         var ticket = new TicketBuilder().WithReference("TCK-0099").WithPriority(TicketPriority.Critical).Build();
         var decision = new TriageDecision(TicketPriority.Critical, "", Later, "", 2, "");
 
-        var exception = Assert.Throws<BusinessRuleViolationException>(() => ticket.Escalate(decision, Later));
+        var exception = Assert.Throws<BusinessRuleViolationException>(() => ticket.Escalate(decision, "A valid reason", "Team lead", Later));
 
         Assert.Contains("TCK-0099 is already Critical", exception.Message);
         Assert.Null(ticket.AssignedAgentId);
@@ -135,7 +146,7 @@ public class TicketTests
         var ticket = new TicketBuilder().WithReference("TCK-0010").WithStatus(status).Build();
         var decision = new TriageDecision(TicketPriority.High, "", Later, "", null, "");
 
-        var exception = Assert.Throws<BusinessRuleViolationException>(() => ticket.Escalate(decision, Later));
+        var exception = Assert.Throws<BusinessRuleViolationException>(() => ticket.Escalate(decision, "A valid reason", "Team lead", Later));
 
         Assert.Contains($"TCK-0010 is {status}", exception.Message);
     }

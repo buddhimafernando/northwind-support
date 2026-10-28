@@ -150,3 +150,42 @@ and 40 tickets across every status, priority and SLA state.
 - The escalation history row, which needs the `TicketEscalations` table and its migration.
 - Calling the triage from `POST /api/tickets` and the escalate endpoint.
 - Measuring the SLA window from the last escalation. For now the at-risk check measures from `CreatedAtUtc`.
+
+### 2.2. Backend
+
+**What was built:**
+- **Triage on create:** `POST /api/tickets` loads the customer's tier, the category's flags and every agent's workload in one query, then applies `TicketTriage.ForNewTicket`. The response is the ticket detail (priority, assigned agent or null, due date, SLA status) plus a `triage` object with the three reasons. When nobody is eligible the ticket is still created (201) and left unassigned, with the reason.
+- **Escalate:** `POST /api/tickets/{id}/escalate` with `{ reason, escalatedBy }` returns `{ ticket, escalation }`.
+  - 400: a reason shorter than 5 or longer than 500 characters once trimmed, or a missing `escalatedBy`.
+  - 404: unknown ticket.
+  - 409: the ticket is Critical, Resolved or Closed. The message says which.
+
+  `Ticket.Escalate` creates the history row itself, from the ticket's own values before and after, so the row can't disagree with the change.
+- **History:** `GET /api/tickets/{id}/escalations` returns the history newest first. Each row has the before and after priority, agent and due date, plus the reason, who and when. Unknown ticket: 404.
+- **SLA filter:** `GET /api/tickets?slaStatus=AtRisk` (or `NotApplicable`, `WithinSla`, `Breached`, `Met`). The rule is translated into a SQL condition and added as one more `if` in `ApplyFilters`, so filtering, sorting, counting and paging all happen in the database.
+
+**Decisions made:**
+- **When the SLA window starts:** an escalation recomputes the due date from the moment of escalation (BR-7), so the window starts at the latest escalation, or at creation if there is none. This is read with a `MAX(EscalatedAtUtc)` subquery rather than stored as an extra column on `Tickets`, so the history table is the only place that records it.
+- **SLA rule written twice:** the rule exists in C# (`SlaEvaluator`, which produces the status shown) and as a SQL condition (`TicketQueries.HasSlaStatus`, which filters). Both have a comment pointing at the other. SQL Server's `DATEDIFF` works in whole seconds, so a ticket within one second of the at-risk boundary could be filtered differently from the status it displays.
+- **Create response shape:** the response stays the ticket detail with an extra `triage` field, rather than a new wrapper object. That keeps the current web form working unchanged. `triage` is left out of every other response.
+- **Delete behaviour:** every foreign key on `TicketEscalations` restricts deletes. It is an audit trail, so deleting a ticket or an agent must not silently remove history. Escalation rows are never updated: the entity has no methods and only private setters.
+- **No wasted queries on a refused escalation:** the handler checks whether the ticket can be escalated before loading customers, categories or agents, so a 409 costs one query.
+- **Validation limits:** the 5–500 reason limits and the 100-character `escalatedBy` limit are constants on `TicketEscalation`. The validator and the EF mapping both use them, so the numbers are never repeated.
+
+**Database:** migration `AddTicketEscalations` adds the `TicketEscalations` table:
+- Columns: `Id`, `TicketId`, `FromPriority`, `ToPriority`, `FromAgentId`, `ToAgentId`, `FromDueAtUtc`, `ToDueAtUtc`, `Reason` (500), `EscalatedBy` (100), `EscalatedAtUtc`.
+- Check constraints: priority must be 1–4, and `ToPriority = FromPriority + 1`.
+- **Index `IX_TicketEscalations_TicketId_EscalatedAtUtc` (TicketId, EscalatedAtUtc DESC):** chosen deliberately, because one index serves three things: the foreign key lookup, the newest-first history, and the "latest escalation" subquery that the ticket list runs for every row.
+- EF also adds its default indexes on `FromAgentId` and `ToAgentId`, so checking those foreign keys never scans the table.
+
+**How it was verified:**
+- 89 unit tests, including the escalate and create handlers and the reason validator at 4, 5, 500 and 501 characters.
+- Manual run against SQL Server:
+  - A Security ticket from a Premium customer requested as Low came back Critical, with a 2 h window and a specialist assigned.
+  - Escalating Low → Medium → High → Critical worked, and the next escalation returned 409. Escalating a Resolved ticket returned 409 naming the status.
+  - The history came back newest first.
+  - For each `slaStatus` value, the filtered count matched the number of rows showing that status, and the five counts added up to the total.
+
+**Known limitations:**
+- **Concurrent requests:** two tickets created at the same moment can both be given to an agent who only had room for one, because workloads are read and then written without a lock.
+- **SLA filter tests:** the filter uses SQL Server's `DATEDIFF`, which the Sqlite test database doesn't support, so it was verified manually against SQL Server rather than with unit tests.

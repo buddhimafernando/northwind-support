@@ -116,18 +116,28 @@ public sealed class Ticket : AggregateRoot
     }
 
     /// <summary>
-    /// Applies an escalation decided by <see cref="TicketTriage.ForEscalation"/>
-    /// the raised priority, the due date recomputed from now, and the owner it kept or chose.
+    /// Applies an escalation decided by <see cref="TicketTriage.ForEscalation"/>: the raised
+    /// priority, the due date recomputed from now, and the owner it kept or chose.
     /// </summary>
+    /// <returns>The history row recording the change, for the caller to store.</returns>
     /// <exception cref="BusinessRuleViolationException">The ticket cannot be escalated.</exception>
-    public void Escalate(TriageDecision decision, DateTime nowUtc)
+    public TicketEscalation Escalate(TriageDecision decision, string reason, string escalatedBy, DateTime nowUtc)
     {
         EnsureCanBeEscalated();
+
+        var escalation = new TicketEscalation(
+            Id,
+            Priority, decision.Priority,
+            AssignedAgentId, decision.AssignedAgentId,
+            DueAtUtc, decision.DueAtUtc,
+            reason, escalatedBy, nowUtc);
 
         Priority = decision.Priority;
         DueAtUtc = decision.DueAtUtc;
         AssignedAgentId = decision.AssignedAgentId;
         UpdatedAtUtc = nowUtc;
+
+        return escalation;
     }
 
     /// <summary>Only open tickets below Critical can be escalated.</summary>
