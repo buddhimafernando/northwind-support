@@ -293,26 +293,21 @@ The API waits for SQL Server to be healthy, then migrates, seeds, and listens on
 ## AI usage
 
 **Tools and what for:**
-- [Antigravity]: To understand the codebase and get an idea on how to complete the tasks
-- [Claude Code]: Reviewing and rewriting the code, debugging the error messages, backend/frontend for 2.2–3.3, Docker, tests
+- Antigravity: to understand the codebase and get an idea of how to approach the tasks.
+- Claude Code: reviewing and rewriting code, debugging errors, the backend and frontend for 2.2–3.3, Docker and tests.
 
-**A workflow that worked:** [e.g. one task at a time: ask for the change, read the diff,
-run the tests, check it by hand (Swagger / curl / the app), then commit it myself]
+**A workflow that worked:** one task at a time. I asked for the change, read the diff, ran the tests, checked it manually (Swagger, curl and the app), then committed it myself.
 
-**Accepted as-is:** [one concrete thing, e.g. the JWT setup, a test file, the Dockerfile]
-and why you were comfortable with it.
+**Accepted as-is:** the Dockerfile. It's short and standard, and every claim about it (cached restore, non-root user, image size) was checked by running it.
 
 **Changed or rejected:**
-- Antigravity's 2.1 code: rejected because [SLA hours in three places, an interface with
-  one implementation, duplicated escalation checks, rules depending on AgentDto]
-- [anything else you pushed back on, e.g. the README being too long and AI-sounding]
+- Antigravity's 2.1 code, because it had the SLA hours in three places, an interface with one implementation, duplicated escalation checks, and rules that depended on `AgentDto`.
+- README drafts that were too long and wordy. I cut them down to plain notes.
 
 **Bugs AI introduced or helped find:**
-- Introduced: `>` instead of `>=` on the agent limit; At risk never calculated (the evaluator
-  wasn't given the window), both in the first 2.1 version.
-- Found: `/health` hung for over a minute with the database down, because of the retry
-  policy; fixed with a 5 s timeout. [plus the 3.1 handler argument-order compile error,
-  if that was AI-generated]
+- Introduced (both in the first 2.1 version): `>` instead of `>=` on the agent limit, and At risk never being calculated because the evaluator wasn't given the window.
+- Found: `/health` hung for over a minute with the database down, because of the retry policy. I fixed it with a 5 s timeout.
+- Found: an AI review pointed out that the SQL SLA filter could disagree with the displayed status at the boundary. I fixed it and checked it in SQL Server.
 
 **How generated code was verified:**
 - Unit, integration and frontend tests (`npm test`), including boundary cases.
