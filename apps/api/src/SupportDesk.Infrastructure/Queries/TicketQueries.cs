@@ -21,7 +21,7 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock, SlaPolicy s
     {
         var normalizedQuery = query.Normalized();
 
-        var now = clock.UtcNow;
+        var now = Now();
 
         var tickets = ApplyFilters(TicketsWithLabels(), normalizedQuery, now);
 
@@ -55,7 +55,7 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock, SlaPolicy s
 
     public Task<TicketDetailDto?> GetDetailAsync(int id, CancellationToken ct)
     {
-        var now = clock.UtcNow;
+        var now = Now();
 
         return TicketsWithLabels()
             .Where(x => x.Ticket.Id == id)
@@ -92,7 +92,7 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock, SlaPolicy s
 
     public async Task<IReadOnlyList<TicketListItemDto>> GetForCustomerAsync(int customerId, CancellationToken ct)
     {
-        var now = clock.UtcNow;
+        var now = Now();
 
         return await TicketsWithLabels()
             .Where(x => x.Ticket.CustomerId == customerId)
@@ -210,8 +210,10 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock, SlaPolicy s
     /// and paged by SLA status in the database. Change one, change the other.
     /// </summary>
     /// <remarks>
-    /// SQL Server measures the window in whole seconds (DATEDIFF counts boundaries), so a ticket
-    /// within a second of the at-risk boundary may filter differently from its displayed status.
+    /// "Remaining &lt;= window x share" is rewritten as "now &gt;= the moment the ticket turns at risk",
+    /// so <paramref name="now"/> is compared directly instead of through DATEDIFF, which counts
+    /// boundaries rather than elapsed time. The window is measured in milliseconds, exact for
+    /// datetime2(3) columns; SLA windows are hours, far below DATEDIFF's int limit (~24 days).
     /// </remarks>
     private Expression<Func<TicketWithLabels, bool>> HasSlaStatus(SlaStatus status, DateTime now)
     {
@@ -229,16 +231,28 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock, SlaPolicy s
 
             SlaStatus.AtRisk => x =>
                 x.Ticket.ResolvedAtUtc == null && x.Ticket.DueAtUtc >= now &&
-                EF.Functions.DateDiffSecond(now, x.Ticket.DueAtUtc) <=
-                    EF.Functions.DateDiffSecond(x.WindowStartUtc, x.Ticket.DueAtUtc) * atRiskShare,
+                x.Ticket.DueAtUtc!.Value.AddMilliseconds(
+                    -(EF.Functions.DateDiffMillisecond(x.WindowStartUtc, x.Ticket.DueAtUtc.Value) * atRiskShare)) <= now,
 
             SlaStatus.WithinSla => x =>
                 x.Ticket.ResolvedAtUtc == null && x.Ticket.DueAtUtc >= now &&
-                EF.Functions.DateDiffSecond(now, x.Ticket.DueAtUtc) >
-                    EF.Functions.DateDiffSecond(x.WindowStartUtc, x.Ticket.DueAtUtc) * atRiskShare,
+                x.Ticket.DueAtUtc!.Value.AddMilliseconds(
+                    -(EF.Functions.DateDiffMillisecond(x.WindowStartUtc, x.Ticket.DueAtUtc.Value) * atRiskShare)) > now,
 
             _ => throw new ArgumentOutOfRangeException(nameof(status), status, null)
         };
+    }
+
+    /// <summary>
+    /// The current time cut to whole milliseconds, the precision of the stored dates, so the SQL
+    /// filter and <see cref="SlaEvaluator"/> compare the same instant. SQL Server would otherwise
+    /// round the parameter to the column's precision.
+    /// </summary>
+    private DateTime Now()
+    {
+        var now = clock.UtcNow;
+
+        return now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMillisecond));
     }
 
     private static IQueryable<TicketWithLabels> ApplySort(IQueryable<TicketWithLabels> source, TicketQuery query)

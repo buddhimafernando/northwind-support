@@ -46,7 +46,7 @@ Full requirements are in **[`ASSIGNMENT_CANDIDATE.md`](ASSIGNMENT_CANDIDATE.md)*
 **Prerequisites:** .NET SDK 10 (`global.json`), Node.js 22 (`.nvmrc`; 20.19+ works), Docker.
 
 ```bash
-cp .env.example .env          # optional, every value has a working default
+cp .env.example .env          # optional for local runs; Docker needs Jwt__SigningKey set in it
 dotnet user-secrets set "Jwt:SigningKey" "$(openssl rand -base64 48)" \
   --project apps/api/src/SupportDesk.Presentation   # once: the key that signs access tokens
 npm install                   # installs the web app
@@ -160,7 +160,7 @@ The migration `AddTicketEscalations` adds the `TicketEscalations` table. It has 
 
 **Decisions:**
 - After an escalation, the SLA window starts from the escalation (BR-7). I read that with a `MAX(EscalatedAtUtc)` subquery instead of adding a column to `Tickets`, so the history table is the only source.
-- The SLA rule exists twice: in C# for the displayed status, and in SQL for the filter, with a comment in each pointing to the other. `DATEDIFF` works in whole seconds, so at the at-risk boundary the two can differ by up to a second.
+- The SLA rule exists twice: in C# for the displayed status, and in SQL for the filter, with a comment in each pointing to the other. To keep them in step at the boundary, the SQL doesn't take a `DATEDIFF` of "now" (`DATEDIFF` counts boundaries, not elapsed time). It works out the moment the ticket turns at risk and compares "now" against that, with "now" cut to the milliseconds the dates are stored in. I checked it in SQL Server: for a 4-hour window, exactly one hour before the due time is At risk, and 1 ms earlier is Within SLA, the same as `SlaEvaluator`.
 - The create response is the existing ticket detail with an extra `triage` field, so the existing form kept working.
 - Foreign keys on `TicketEscalations` restrict deletes, because it's an audit trail.
 
@@ -281,7 +281,7 @@ The API waits for SQL Server to be healthy, then migrates, seeds, and listens on
 ## Known limitations
 
 - **Assignment race:** two tickets created at the same moment can both go to an agent with room for only one, because workloads are read and written without a lock.
-- **SLA filter:** it's tested by hand against SQL Server, not automatically, because SQLite has no `DATEDIFF`. Within one second of the at-risk boundary, the filter and the displayed status can disagree.
+- **SLA filter:** it's tested by hand against SQL Server, not automatically, because SQLite has no `DATEDIFF`. A Testcontainers SQL Server test would cover it.
 - **Search at scale:** the search uses `LIKE '%…%'`, which can't use an index. With millions of tickets it would need full-text search.
 - **Tokens:** they can't be revoked before they expire (60 minutes). Only `/me` re-checks whether the agent is still active.
 - **Token storage:** the token is kept in `sessionStorage`, so an XSS bug could leak it. An HttpOnly cookie would be safer.
